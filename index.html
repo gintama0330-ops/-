@@ -16,11 +16,8 @@
       --text:#7b5c8f;
       --sub:#a587b8;
       --pink:#ff8fc5;
-      --pink2:#ffb8db;
       --purple:#c7a4ff;
-      --blue:#b8e5ff;
       --yellow:#ffe596;
-      --mint:#ccf8e3;
       --shadow:0 20px 45px rgba(210,145,192,.22);
       --line:rgba(255,255,255,.9);
     }
@@ -422,9 +419,9 @@
       </div>
 
       <div class="news-tabs">
-        <button class="news-tab active" data-rss="top-picks">主要</button>
-        <button class="news-tab" data-rss="domestic">国内</button>
-        <button class="news-tab" data-rss="it">IT</button>
+        <button class="news-tab active" data-mode="guardian">世界</button>
+        <button class="news-tab" data-mode="japan">日本</button>
+        <button class="news-tab" data-mode="hn">IT</button>
       </div>
 
       <div id="newsContent" class="loading">ニュースをよみこみ中… 📰</div>
@@ -432,7 +429,6 @@
   </main>
 
   <script>
-    // floating icons
     const floaters = document.getElementById('floaters');
     const floaterIcons = ['✨','💖','⭐','☁️','🎀','🫧'];
     for(let i=0;i<26;i++){
@@ -446,7 +442,6 @@
       floaters.appendChild(el);
     }
 
-    // mood section
     const charMessages = {
       0: [
         'もこくまからひとこと🧸<br>今日はあせらなくてだいじょうぶ。',
@@ -490,7 +485,6 @@
     document.getElementById('starText').textContent = '⭐'.repeat((today.getDate() % 3) + 1);
     setCharacter(0);
 
-    // weather
     function codeToEmoji(code){
       if ([0].includes(code)) return '☀️';
       if ([1].includes(code)) return '🌤️';
@@ -561,42 +555,90 @@
       }
     }
 
-    // news via RSS to JSON service
     const tabButtons = [...document.querySelectorAll('.news-tab')];
     const newsContent = document.getElementById('newsContent');
 
-    async function loadNews(topic = 'top-picks'){
-      tabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.rss === topic));
+    async function loadGuardian(){
+      const apiKey = 'test';
+      const url = `https://content.guardianapis.com/search?api-key=${apiKey}&page-size=5&show-fields=trailText&order-by=newest`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const items = data.response?.results || [];
+      return items.map((item, idx) => ({
+        kicker: `WORLD ${idx + 1}`,
+        title: item.webTitle,
+        link: item.webUrl
+      }));
+    }
+
+    async function loadHackerNews(){
+      const url = 'https://hn.algolia.com/api/v1/search?tags=front_page';
+      const res = await fetch(url);
+      const data = await res.json();
+      const items = data.hits || [];
+      return items.slice(0,5).map((item, idx) => ({
+        kicker: `IT ${idx + 1}`,
+        title: item.title || item.story_title || 'No title',
+        link: item.url || item.story_url || 'https://news.ycombinator.com/'
+      }));
+    }
+
+    async function loadJapanFallback(){
+      const queries = [
+        'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www3.nhk.or.jp/rss/news/cat0.xml'),
+        'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://www.asahi.com/rss/asahi/newsheadlines.rdf')
+      ];
+
+      for (const url of queries){
+        try{
+          const res = await fetch(url);
+          const text = await res.text();
+          const xml = new DOMParser().parseFromString(text, 'text/xml');
+          const items = [...xml.querySelectorAll('item')].slice(0,5);
+          if (items.length){
+            return items.map((item, idx) => ({
+              kicker: `JAPAN ${idx + 1}`,
+              title: item.querySelector('title')?.textContent || 'No title',
+              link: item.querySelector('link')?.textContent || '#'
+            }));
+          }
+        }catch(e){}
+      }
+      throw new Error('Japan news unavailable');
+    }
+
+    async function loadNews(mode = 'guardian'){
+      tabButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
       newsContent.className = 'loading';
       newsContent.innerHTML = 'ニュースをよみこみ中… 📰';
 
       try{
-        const rssUrl = `https://news.yahoo.co.jp/rss/topics/${topic}.xml`;
-        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
-        const res = await fetch(apiUrl);
-        const data = await res.json();
+        let items = [];
+        if (mode === 'guardian') items = await loadGuardian();
+        if (mode === 'hn') items = await loadHackerNews();
+        if (mode === 'japan') items = await loadJapanFallback();
 
-        if (!data.items || !data.items.length) throw new Error('No news');
+        if (!items.length) throw new Error('No news');
 
         newsContent.className = 'news-list';
-        newsContent.innerHTML = data.items.slice(0, 5).map((item, idx) => `
+        newsContent.innerHTML = items.map((item) => `
           <a class="news-item" href="${item.link}" target="_blank" rel="noopener noreferrer">
-            <div class="news-kicker">NEWS ${idx + 1}</div>
+            <div class="news-kicker">${item.kicker}</div>
             <div class="news-title">${item.title}</div>
           </a>
         `).join('');
       }catch(e){
         newsContent.className = 'error';
-        newsContent.innerHTML = 'ニュースの取得に失敗したよ。<br>GitHub Pages では外部サービスの都合で読めない時もあるよ。';
+        newsContent.innerHTML = 'ニュースの取得に失敗したよ。<br>別のタブを押すと読めることがあるよ。';
       }
     }
 
     tabButtons.forEach(btn => {
-      btn.addEventListener('click', () => loadNews(btn.dataset.rss));
+      btn.addEventListener('click', () => loadNews(btn.dataset.mode));
     });
 
     loadWeather();
-    loadNews();
+    loadNews('guardian');
   </script>
 </body>
 </html>
